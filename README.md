@@ -24,7 +24,17 @@ python -m venv .venv
 
 O banco é criado sozinho na primeira vez, em `%APPDATA%\EcoGuard\ecoguard.db` (nunca ao lado do programa). Para testar sem mexer nos seus dados: `$env:ECOGUARD_DADOS="C:\temp\eg"`.
 
-> O executável (PyInstaller + instalador) e o guia da professora ainda estão por fazer. Veja o CLAUDE.md, etapas 7 e 8.
+## Gerar o executável e o instalador
+
+```powershell
+.venv\Scripts\pip install pywebview pyinstaller
+winget install JRSoftware.InnoSetup        # uma vez só
+powershell -ExecutionPolicy Bypass -File tools\gerar_exe.ps1
+```
+
+Isso cria `dist\EcoGuard\EcoGuard.exe` (pasta, sem console) e `instalador\Instalar-EcoGuard.exe`. O instalador **não pede administrador** (instala para o usuário atual), cria o atalho na área de trabalho e fala português. O `EcoGuard.exe` escolhe sozinho uma porta livre, abre a janela própria (pywebview/WebView2) e encerra tudo quando a janela fecha. Se a janela não abrir, usa o navegador padrão.
+
+> Falta testar o instalador num Windows limpo, sem Python (CLAUDE.md, etapa 7). O guia de uma página para a professora é a etapa 8.
 
 ## Dados de demonstração
 
@@ -42,6 +52,7 @@ A API (`https://projeto-sensores-esp32.onrender.com`, FastAPI + Supabase no Rend
 - A cada **30 segundos** o app busca as leituras novas em segundo plano. O botão **Buscar agora** força uma busca.
 - **Todo código** que a API devolve vira um sensor. Os que ainda não têm lugar aparecem em **Sensores sem lugar**, com o botão *Colocar no mapa*, porque a API não guarda localização.
 - Leituras fora da faixa (temperatura de -20 a 70 °C, umidades de 0 a 100 %) são descartadas, como o teste de 100 °C do `ESP32_001`.
+- **Intervalo do ESP32:** é definido no firmware do aparelho. O recomendado é enviar **a cada 10 minutos**: assim "Funcionando" (30 minutos) tolera até duas leituras perdidas. Para a apresentação dá para reduzir (ex.: 1 minuto) e voltar depois.
 - Estados: **Funcionando** (leitura de menos de 30 minutos), **Sem sinal** (mais antiga), **Esperando** (nunca enviou).
 - A API gratuita do Render **dorme** e leva cerca de 20 s para acordar. O app mostra "Acordando os sensores..." e tenta de novo sozinho.
 
