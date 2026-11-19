@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block titulo %}Sua propriedade{% endblock %}
+{% block conteudo %}
+<div class="tela">
+  <div class="area-mapa">
+    <div id="mapa" role="application" aria-label="Mapa. Clique para marcar a sua propriedade"></div>
+    <div class="sobre-mapa dica" id="dica">👆 Clique no mapa no lugar da sua propriedade</div>
+    <div class="sobre-mapa busca">
+      <input type="search" id="busca" placeholder="Procurar uma cidade ou lugar" autocomplete="off" aria-label="Procurar um lugar">
+      <div class="resultados" id="resultados" hidden></div>
+    </div>
+  </div>
+
+  <aside class="painel">
+    <h1>1. Onde fica a sua propriedade?</h1>
+
+    <section class="cartao">
+      <label class="campo" for="nome">Nome da propriedade</label>
+      <input id="nome" type="text" maxlength="60" placeholder="Ex.: Sítio Boa Vista" autocomplete="off">
+      <p class="aviso">🔒 Não use endereço de casa nem sobrenome no nome. Na rede, o lugar aparece só <b>aproximado</b> (cerca de 1 km).</p>
+    </section>
+
+    <section class="cartao">
+      <span class="campo">Tamanho da propriedade</span>
+      <div class="tamanhos" role="group" aria-label="Tamanho">
+        <button type="button" class="tam" data-raio="150">Pequena<span>150 m</span></button>
+        <button type="button" class="tam ativo" data-raio="500">Média<span>500 m</span></button>
+        <button type="button" class="tam" data-raio="1500">Grande<span>1,5 km</span></button>
+      </div>
+      <input id="raio" type="range" min="50" max="5000" step="50" value="500" aria-label="Ajustar o tamanho">
+      <p class="nota" id="raio-txt"></p>
+    </section>
+
+    <button class="btn grande verde" type="button" id="btn-salvar" disabled>Salvar e ir para o sensor →</button>
+    <button class="btn" type="button" id="btn-gps">📍 Usar onde eu estou</button>
+    <p class="erro-msg" id="erro" role="alert" hidden></p>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+const mapa = EcoGuard.mapaBase("mapa").setView(EcoGuard.CENTRO_PADRAO, 5);
+let ponto = null, circulo = null, pinoMarcado = null;
+
+// Mostra as propriedades que já existem, para não marcar por cima
+EcoGuard.api("/api/mapa").then(d => d.propriedades.forEach(p => EcoGuard.circuloPropriedade([p.lat, p.lon], p.raio_m, true).addTo(mapa))).catch(() => {});
+
+function raio() { return Number($("raio").value); }
+function textoRaio() {
+  const r = raio(), ha = Math.PI * r * r / 10000;
+  $("raio-txt").textContent = `Raio de ${EcoGuard.distancia(r)} (cerca de ${EcoGuard.num(ha, ha < 10 ? 1 : 0)} hectares)`;
+  document.querySelectorAll(".tam").forEach(b => b.classList.toggle("ativo", Number(b.dataset.raio) === r));
+}
+function marcar(ll, ajustar) {
+  ponto = ll;
+  if (circulo) circulo.setLatLng(ll).setRadius(raio());
+  else circulo = EcoGuard.circuloPropriedade(ll, raio()).addTo(mapa);
+  if (pinoMarcado) pinoMarcado.setLatLng(ll);
+  else pinoMarcado = L.marker(ll, { icon: EcoGuard.pinoLocal() }).addTo(mapa);
+  $("btn-salvar").disabled = false;
+  $("dica").hidden = true;
+  if (ajustar) mapa.fitBounds(circulo.getBounds(), { padding: [80, 80], maxZoom: 16 });
+}
+mapa.on("click", e => marcar(e.latlng));
+$("raio").oninput = () => { textoRaio(); circulo && circulo.setRadius(raio()); };
+document.querySelectorAll(".tam").forEach(b => b.onclick = () => {
+  $("raio").value = b.dataset.raio; textoRaio();
+  if (circulo) { circulo.setRadius(raio()); mapa.fitBounds(circulo.getBounds(), { padding: [80, 80], maxZoom: 16 }); }
+});
+textoRaio();
+
+$("btn-gps").onclick = () => {
+  if (!navigator.geolocation) return EcoGuard.toast("Este computador não sabe onde está. Clique no mapa.");
+  navigator.geolocation.getCurrentPosition(
+    p => marcar(L.latLng(p.coords.latitude, p.coords.longitude), true),
+    () => EcoGuard.toast("Não achei onde você está. Clique no mapa."), { timeout: 10000 });
+};
+EcoGuard.buscaEndereco($("busca"), $("resultados"), i => { mapa.setView([i.lat, i.lon], 15); marcar(L.latLng(i.lat, i.lon)); });
+
+$("btn-salvar").onclick = async () => {
+  const nome = $("nome").value.trim(), er = $("erro");
+  er.hidden = true;
+  if (!nome) { er.textContent = "Dê um nome para a propriedade. Ex.: Sítio Boa Vista."; er.hidden = false; $("nome").focus(); return; }
+  $("btn-salvar").disabled = true;
+  try {
+    const p = await EcoGuard.api("/api/propriedades", { method: "POST", body: { nome, lat: ponto.lat, lon: ponto.lng, raio_m: raio() } });
+    location.href = "/sensor?propriedade=" + p.id;
+  } catch (e) { er.textContent = e.message; er.hidden = false; $("btn-salvar").disabled = false; }
+};
+</script>
+{% endblock %}

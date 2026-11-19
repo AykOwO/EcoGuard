@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block titulo %}Cadastre o sensor{% endblock %}
+{% block conteudo %}
+<div class="tela">
+  <div class="area-mapa">
+    <div id="mapa" role="application" aria-label="Mapa. Clique onde o sensor está"></div>
+    <div class="sobre-mapa dica" id="dica">👆 Clique no mapa onde o sensor está</div>
+  </div>
+
+  <aside class="painel">
+    <h1>2. Cadastre o sensor</h1>
+
+    <section class="cartao" id="sem-prop" hidden>
+      <p>Primeiro, marque onde fica a sua propriedade.</p>
+      <a class="btn grande verde" href="{{ url_for('pg_propriedade') }}">Ir para o passo 1</a>
+    </section>
+
+    <div id="form" hidden>
+      <section class="cartao">
+        <label class="campo" for="prop">Em qual propriedade ele fica?</label>
+        <select id="prop"></select>
+      </section>
+
+      <section class="cartao">
+        <label class="campo" for="codigo">Código do sensor</label>
+        <input id="codigo" type="text" maxlength="32" placeholder="Ex.: ESP32_001" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <p class="nota">📟 O código está escrito no aparelho (ESP32) ou no programa dele. Tem letras, números e <b>_</b>.</p>
+        <div id="chips-cx" hidden>
+          <p class="nota">Estes já estão enviando dados. Toque em um:</p>
+          <div class="chips" id="chips"></div>
+        </div>
+      </section>
+
+      <section class="cartao">
+        <label class="campo" for="nome">Nome do sensor</label>
+        <input id="nome" type="text" maxlength="60" placeholder="Ex.: Sensor do pasto" autocomplete="off">
+        <p class="aviso">🔒 Não use endereço de casa nem sobrenome no nome.</p>
+      </section>
+
+      <button class="btn grande verde" type="button" id="btn-salvar">Salvar sensor e ver o mapa →</button>
+      <p class="erro-msg" id="erro" role="alert" hidden></p>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+const mapa = EcoGuard.mapaBase("mapa").setView(EcoGuard.CENTRO_PADRAO, 5);
+const url = new URLSearchParams(location.search);
+let props = [], ponto = null, pinoSensor = null, circuloProp = null;
+
+function propAtual() { return props.find(p => p.id === Number($("prop").value)); }
+
+function irParaPropriedade(centrar) {
+  const p = propAtual();
+  if (!p) return;
+  if (circuloProp) circuloProp.remove();
+  circuloProp = EcoGuard.circuloPropriedade([p.lat, p.lon], p.raio_m).addTo(mapa);
+  mapa.fitBounds(circuloProp.getBounds(), { padding: [90, 90], maxZoom: 17 });
+  if (centrar) colocar(L.latLng(p.lat, p.lon), false);
+}
+function colocar(ll, esconderDica = true) {
+  ponto = ll;
+  if (pinoSensor) pinoSensor.setLatLng(ll);
+  else pinoSensor = L.marker(ll, { icon: L.divIcon({ className: "", iconSize: [44, 44], iconAnchor: [22, 22],
+    html: '<span class="pino esperando grande"><svg viewBox="0 0 24 24"><path d="M12 6v6l4 2"/></svg></span>' }) }).addTo(mapa);
+  if (esconderDica) $("dica").hidden = true;
+}
+mapa.on("click", e => colocar(e.latlng));
+
+(async () => {
+  const d = await EcoGuard.api("/api/mapa");
+  props = d.propriedades;
+  if (!props.length) { $("sem-prop").hidden = false; return; }
+  $("form").hidden = false;
+  $("prop").innerHTML = props.map(p => `<option value="${p.id}">${EcoGuard.esc(p.nome)}${p.exemplo ? " (exemplo)" : ""}</option>`).join("");
+  const pedida = Number(url.get("propriedade"));
+  // sem pedido: a última propriedade criada (a da turma), não a primeira de exemplo
+  $("prop").value = props.some(p => p.id === pedida) ? pedida : props[props.length - 1].id;
+  $("prop").onchange = () => irParaPropriedade(true);
+  irParaPropriedade(true);
+
+  if (d.sem_lugar.length) {
+    $("chips-cx").hidden = false;
+    $("chips").innerHTML = d.sem_lugar.map(s => `<button type="button" class="chip-btn" data-c="${EcoGuard.esc(s.codigo)}">${EcoGuard.esc(s.codigo)}</button>`).join("");
+    $("chips").onclick = e => { const b = e.target.closest("[data-c]"); if (b) { $("codigo").value = b.dataset.c; $("nome").focus(); } };
+  }
+  if (url.get("codigo")) { $("codigo").value = url.get("codigo"); $("nome").focus(); }
+})().catch(e => EcoGuard.toast(e.message));
+
+$("btn-salvar").onclick = async () => {
+  const er = $("erro"); er.hidden = true;
+  $("btn-salvar").disabled = true;
+  try {
+    await EcoGuard.api("/api/sensores", { method: "POST", body: {
+      codigo: $("codigo").value, nome: $("nome").value, propriedade_id: Number($("prop").value), lat: ponto.lat, lon: ponto.lng } });
+    location.href = "/";
+  } catch (e) { er.textContent = e.message; er.hidden = false; $("btn-salvar").disabled = false; }
+};
+</script>
+{% endblock %}

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Banco local e segredos (o banco do app fica em %APPDATA%\EcoGuard, mas nunca vai para o Git)
+*.db
+*.db-journal
+*.sqlite3
+.env
+instance/
+
+# Gerados pelo empacotamento
+build/
+dist/
+*.spec.bak
+
+# Claude Code e skills de design instaladas (ferramentas de quem desenvolve, não fazem parte do app)
+.claude/
+.agents/
+skills-lock.json
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

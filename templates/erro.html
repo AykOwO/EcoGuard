@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+  <section class="pagina-simples">
+    <h1>{{ titulo }}</h1>
+    <p>{{ texto }}</p>
+    <a class="btn grande" href="{{ url_for('pg_mapa') }}">Voltar para o mapa</a>
+  </section>
+{% endblock %}

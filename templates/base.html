@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#061E38">
+  <title>{% block titulo %}{% endblock %} | EcoGuard</title>
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ecoguard.css') }}?v=1">
+</head>
+<body class="{% block corpo_classe %}{% endblock %}">
+  <header class="topo">
+    <a class="marca" href="{{ url_for('pg_mapa') }}" aria-label="EcoGuard, ir para o mapa">
+      <img src="{{ url_for('static', filename='img/mascote.png') }}" alt="" width="64" height="46">
+      <span class="nome"><b class="eco">Eco</b><b class="guard">Guard</b></span>
+      <span class="lema">Monitorando hoje, preservando sempre</span>
+    </a>
+    <nav class="passos" aria-label="Passos">
+      <a href="{{ url_for('pg_propriedade') }}" {% if passo == 1 %}aria-current="step"{% endif %}><i>1</i><span>Onde fica a sua propriedade</span></a>
+      <a href="{{ url_for('pg_sensor') }}" {% if passo == 2 %}aria-current="step"{% endif %}><i>2</i><span>Cadastre o sensor</span></a>
+      <a href="{{ url_for('pg_mapa') }}" {% if passo == 3 %}aria-current="step"{% endif %}><i>3</i><span>Veja o mapa</span></a>
+    </nav>
+  </header>
+
+  <main class="conteudo">{% block conteudo %}{% endblock %}</main>
+
+  <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/ecoguard.js') }}?v=1"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

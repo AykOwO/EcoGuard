@@ -1,0 +1,4 @@
+Flask>=3.0
+Flask-SQLAlchemy>=3.1   # banco local (SQLite): modelos em banco.py
+requests>=2.31          # busca as leituras na API dos sensores
+Pillow>=10.0            # só para gerar os ícones (tools/gerar_icones.py)

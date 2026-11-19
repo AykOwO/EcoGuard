@@ -1,0 +1,142 @@
+diff --git a/api/indices.sql b/api/indices.sql
+new file mode 100644
+index 0000000..c5d052f
+--- /dev/null
++++ b/api/indices.sql
+@@ -0,0 +1,2 @@
++-- Rode UMA vez no Supabase (menu SQL Editor). Deixa as buscas por aparelho rapidas quando a tabela crescer.
++CREATE INDEX IF NOT EXISTS idx_leituras_codigo_id ON public.leituras (codigo_esp32, id);
+diff --git a/api/main.py b/api/main.py
+index 335f6f5..63b4060 100644
+--- a/api/main.py
++++ b/api/main.py
+@@ -1,14 +1,25 @@
+ 
+-from fastapi import FastAPI
+-from pydantic import BaseModel
+-from fastapi.middleware.cors import CORSMiddleware
++from datetime import datetime
++from typing import Literal
+ import os
++import secrets
++
++from fastapi import Depends, FastAPI, Header, HTTPException, Query
++from pydantic import BaseModel, Field
++from fastapi.middleware.cors import CORSMiddleware
+ import psycopg
+ 
+ 
+ DATABASE_URL = os.getenv("DATABASE_URL")
+ 
++# Chaves opcionais. Se a variavel NAO existir no Render, a rota continua aberta, como antes.
++# Para proteger, crie a variavel no Render e mande o mesmo valor no cabecalho X-API-Key.
++CHAVE_ESCRITA = os.getenv("CHAVE_ESCRITA")  # exigida em POST /dados (quem envia: os ESP32)
++CHAVE_LEITURA = os.getenv("CHAVE_LEITURA")  # exigida em GET /dados (quem le: o painel / o EcoGuard)
++
+ print("DATABASE_URL configurada:", DATABASE_URL is not None)
++print("POST /dados protegido por chave:", bool(CHAVE_ESCRITA))
++print("GET /dados protegido por chave:", bool(CHAVE_LEITURA))
+ 
+ app = FastAPI()
+ app.add_middleware(
+@@ -21,16 +32,27 @@ app.add_middleware(
+ 
+ 
+ class DadosSensores(BaseModel):
+-    codigo_esp32: str
+-    temperatura: float
+-    umidade_ar: float
+-    umidade_solo: int
++    codigo_esp32: str = Field(min_length=4, max_length=32)
++    temperatura: float = Field(ge=-40, le=85)  # graus Celsius
++    umidade_ar: float = Field(ge=0, le=100)  # porcentagem
++    umidade_solo: int = Field(ge=0, le=100)  # porcentagem
+ 
+ 
+ def conectar_banco():
+     return psycopg.connect(DATABASE_URL)
+ 
+ 
++def exigir_chave(chave_esperada):
++    """Se a chave existir (variavel de ambiente), exige o mesmo valor no cabecalho X-API-Key.
++    Se nao existir, deixa passar (comportamento antigo)."""
++    def verificar(x_api_key: str | None = Header(None)):
++        if not chave_esperada:
++            return
++        if not x_api_key or not secrets.compare_digest(x_api_key.encode(), chave_esperada.encode()):
++            raise HTTPException(status_code=401, detail="Chave invalida ou ausente")
++    return verificar
++
++
+ @app.get("/")
+ def inicio():
+     return {
+@@ -50,13 +72,14 @@ def teste_banco():
+         }
+ 
+     except Exception as erro:
++        print("Erro ao conectar no banco:", erro)  # o detalhe fica so no log do Render
+         return {
+             "status": "erro",
+-            "mensagem": str(erro)
++            "mensagem": "Nao foi possivel conectar ao banco"
+         }
+ 
+ 
+-@app.post("/dados")
++@app.post("/dados", dependencies=[Depends(exigir_chave(CHAVE_ESCRITA))])
+ def receber_dados(dados: DadosSensores):
+     print("Dados recebidos:")
+     print(f"ESP32: {dados.codigo_esp32}")
+@@ -88,11 +111,35 @@ def receber_dados(dados: DadosSensores):
+     }
+ 
+ 
+-@app.get("/dados")
+-def listar_dados():
++@app.get("/dados", dependencies=[Depends(exigir_chave(CHAVE_LEITURA))])
++def listar_dados(
++    codigo_esp32: str | None = None,  # so as leituras desse aparelho
++    desde_id: int | None = Query(None, ge=0),  # so as leituras com id MAIOR que este
++    desde: datetime | None = None,  # so as leituras a partir deste instante (ex.: 2026-10-28T12:00:00Z)
++    limite: int = Query(1000, ge=1, le=5000),  # quantas leituras devolver, no maximo
++    ordem: Literal["asc", "desc"] = "desc",  # desc = mais novas primeiro (como era antes)
++):
++    condicoes = []
++    parametros = []
++
++    if codigo_esp32:
++        condicoes.append("codigo_esp32 = %s")
++        parametros.append(codigo_esp32)
++
++    if desde_id is not None:
++        condicoes.append("id > %s")
++        parametros.append(desde_id)
++
++    if desde is not None:
++        condicoes.append("data_hora >= %s")
++        parametros.append(desde)
++
++    onde = ("WHERE " + " AND ".join(condicoes)) if condicoes else ""
++    direcao = "ASC" if ordem == "asc" else "DESC"  # so entra ASC ou DESC (nunca texto de fora)
++
+     with conectar_banco() as conexao:
+         with conexao.cursor() as cursor:
+-            cursor.execute("""
++            cursor.execute(f"""
+                 SELECT
+                     id,
+                     codigo_esp32,
+@@ -101,8 +148,10 @@ def listar_dados():
+                     umidade_solo,
+                     data_hora
+                 FROM public.leituras
+-                ORDER BY data_hora DESC
+-            """)
++                {onde}
++                ORDER BY data_hora {direcao}, id {direcao}
++                LIMIT %s
++            """, parametros + [limite])
+ 
+             resultados = cursor.fetchall()
+ 

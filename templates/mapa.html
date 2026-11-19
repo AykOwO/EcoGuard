@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block titulo %}Mapa{% endblock %}
+{% block conteudo %}
+<div class="tela">
+  <div class="area-mapa"><div id="mapa" role="application" aria-label="Mapa de satélite com as propriedades e os sensores"></div></div>
+
+  <aside class="painel">
+    <section class="cartao status" id="status" aria-live="polite">
+      <div class="status-linha"><span class="status-ic" id="status-ic"></span><p id="status-msg">Acordando os sensores...</p></div>
+      <button class="btn grande" type="button" id="btn-buscar">Buscar agora</button>
+      <p class="nota" id="status-hora"></p>
+    </section>
+
+    <section class="cartao numeros" id="numeros" hidden>
+      <div><b id="n-props">0</b><span>propriedades</span></div>
+      <div><b id="n-sens">0</b><span>sensores no mapa</span></div>
+    </section>
+
+    <section class="cartao">
+      <h2>Como ler o mapa</h2>
+      <ul class="legenda">
+        <li><i class="pino funcionando"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></i><b>Funcionando</b> <span>enviou há pouco</span></li>
+        <li><i class="pino sem_sinal"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></i><b>Sem sinal</b> <span>parou de enviar</span></li>
+        <li><i class="pino esperando"><svg viewBox="0 0 24 24"><path d="M12 6v6l4 2"/></svg></i><b>Esperando</b> <span>ainda não enviou</span></li>
+        <li><i class="pino funcionando ex"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></i><b>Exemplo</b> <span>de mentira, só para mostrar</span></li>
+      </ul>
+    </section>
+
+    <section class="cartao" id="cx-sem-lugar" hidden>
+      <h2>Sensores sem lugar</h2>
+      <p class="nota">Estes sensores estão enviando dados, mas ainda não sabemos onde eles ficam.</p>
+      <ul class="lista" id="sem-lugar"></ul>
+    </section>
+
+    <section class="cartao">
+      <h2>Propriedades</h2>
+      <ul class="lista" id="lista-props"></ul>
+      <a class="btn" href="{{ url_for('pg_propriedade') }}">+ Nova propriedade</a>
+    </section>
+
+    <p class="rodape-painel"><button type="button" class="discreto" id="btn-restaurar">Restaurar exemplos</button> · Cometa Charuri</p>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const mapa = EcoGuard.mapaBase("mapa").setView(EcoGuard.CENTRO_PADRAO, 5);
+const camada = L.layerGroup().addTo(mapa);
+let primeiraVez = true, ultimoJson = "";
+// Com o Brasil inteiro na tela os nomes se amontoam: só aparecem quando o mapa está mais perto
+const rotulos = () => document.getElementById("mapa").classList.toggle("sem-rotulos", mapa.getZoom() < 8);
+mapa.on("zoomend", rotulos); rotulos();
+
+const ICONE = {
+  funcionando: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  sem_sinal: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  esperando: '<svg viewBox="0 0 24 24"><path d="M12 6v6l4 2"/></svg>',
+};
+const STATUS_IC = { ok: "✅", acordando: "⏳", sem_internet: "📡", demorou: "⏳", erro: "⚠️", desligada: "💤" };
+
+function pino(s) {
+  return L.divIcon({ className: "", iconSize: [44, 44], iconAnchor: [22, 22], popupAnchor: [0, -22],
+    html: `<span class="pino ${s.estado} ${s.exemplo ? "ex" : ""} grande">${ICONE[s.estado]}</span>` });
+}
+
+function popup(s, props) {
+  const l = s.leitura, p = props[s.propriedade_id];
+  const medida = (ic, nome, v, un) => v == null ? "" : `<li><span>${ic}</span>${nome}<b>${EcoGuard.num(v, 1)}${un}</b></li>`;
+  return `<div class="pop">
+    <h3>${EcoGuard.esc(s.nome)}</h3>
+    <p>${EcoGuard.chipEstado(s.estado)}${s.exemplo ? '<span class="chip ex">exemplo</span>' : ""}</p>
+    ${p ? `<p class="nota">Propriedade: ${EcoGuard.esc(p.nome)}</p>` : ""}
+    ${l ? `<ul class="medidas">${medida("🌡️", "Temperatura", l.temperatura, " °C")}${medida("💧", "Umidade do ar", l.umidade_ar, "%")}${medida("🌱", "Umidade do solo", l.umidade_solo, "%")}</ul>
+      <p class="nota">Última leitura: ${EcoGuard.haQuanto(l.em)}</p>` : '<p class="nota">Ainda não chegou nenhuma leitura.</p>'}
+    <button type="button" class="btn-apagar" data-sensor="${s.id}">Tirar do mapa</button>
+  </div>`;
+}
+
+function desenhar(d) {
+  const props = Object.fromEntries(d.propriedades.map(p => [p.id, p]));
+  camada.clearLayers();
+  const limites = L.latLngBounds([]);
+  d.propriedades.forEach(p => {
+    const c = EcoGuard.circuloPropriedade([p.lat, p.lon], p.raio_m).addTo(camada);
+    L.tooltip({ permanent: true, direction: "top", className: "rotulo-prop", offset: [0, -4] })
+      .setLatLng([p.lat + p.raio_m / 111320, p.lon]).setContent(EcoGuard.esc(p.nome) + (p.exemplo ? " (exemplo)" : "")).addTo(camada);
+    limites.extend(c.getBounds());
+  });
+  d.sensores.forEach(s => {
+    L.marker([s.lat, s.lon], { icon: pino(s), title: s.nome, keyboard: true }).addTo(camada)
+      .bindPopup(popup(s, props), { maxWidth: 340, minWidth: 260 });
+    limites.extend([s.lat, s.lon]);
+  });
+  if (primeiraVez && limites.isValid()) mapa.fitBounds(limites, { padding: [60, 60], maxZoom: 6 });
+  primeiraVez = false;
+}
+
+function painel(d) {
+  const st = d.status;
+  $("status-ic").textContent = STATUS_IC[st.estado] || "ℹ️";
+  $("status-msg").textContent = st.mensagem;
+  $("status").className = "cartao status s-" + st.estado;
+  $("status-hora").textContent = st.fim_em ? "Última busca: " + EcoGuard.haQuanto(st.fim_em) : "";
+  $("numeros").hidden = false;
+  $("n-props").textContent = d.propriedades.length;
+  $("n-sens").textContent = d.sensores.length;
+
+  $("cx-sem-lugar").hidden = !d.sem_lugar.length;
+  $("sem-lugar").innerHTML = d.sem_lugar.map(s => `
+    <li><div><b>${EcoGuard.chipEstado(s.estado)}</b><span class="nota">Código: ${EcoGuard.esc(s.codigo)}</span></div>
+      <a class="btn" href="/sensor?codigo=${encodeURIComponent(s.codigo)}">Colocar no mapa</a></li>`).join("");
+
+  $("lista-props").innerHTML = d.propriedades.length ? d.propriedades.map(p => {
+    const n = d.sensores.filter(s => s.propriedade_id === p.id).length;
+    return `<li><button type="button" class="ir" data-ir="${p.id}"><b>${EcoGuard.esc(p.nome)}</b>
+      <span class="nota">${n} ${n === 1 ? "sensor" : "sensores"}${p.exemplo ? " · exemplo" : ""}</span></button>
+      <button type="button" class="btn-apagar" data-prop="${p.id}" aria-label="Apagar ${EcoGuard.esc(p.nome)}">Apagar</button></li>`;
+  }).join("") : '<li class="vazio">Nenhuma propriedade ainda. Que tal marcar a primeira?</li>';
+  props_por_id = Object.fromEntries(d.propriedades.map(p => [p.id, p]));
+}
+let props_por_id = {};
+const $ = id => document.getElementById(id);
+
+async function atualizar() {
+  try {
+    const d = await EcoGuard.api("/api/mapa");
+    painel(d);
+    const chave = JSON.stringify([d.propriedades, d.sensores]);
+    if (chave !== ultimoJson && !mapa._popup) { ultimoJson = chave; desenhar(d); }
+  } catch (e) {
+    $("status-ic").textContent = "⚠️"; $("status-msg").textContent = e.message;
+  }
+}
+
+$("btn-buscar").onclick = async () => {
+  $("btn-buscar").disabled = true;
+  try { await EcoGuard.api("/api/sincronizar", { method: "POST" }); EcoGuard.toast("Buscando os sensores..."); await atualizar(); }
+  catch (e) { EcoGuard.toast(e.message); }
+  setTimeout(() => $("btn-buscar").disabled = false, 3000);
+};
+
+$("btn-restaurar").onclick = async () => {
+  if (!confirm("Voltar os exemplos? Os exemplos apagados voltam. O que você cadastrou continua.")) return;
+  try { await EcoGuard.api("/api/exemplos/restaurar", { method: "POST" }); ultimoJson = ""; primeiraVez = true; await atualizar(); EcoGuard.toast("Exemplos de volta!"); }
+  catch (e) { EcoGuard.toast(e.message); }
+};
+
+document.addEventListener("click", async e => {
+  const ir = e.target.closest("[data-ir]");
+  if (ir) { const p = props_por_id[ir.dataset.ir]; if (p) mapa.flyTo([p.lat, p.lon], 15, { duration: .8 }); return; }
+  const prop = e.target.closest("[data-prop]"), sens = e.target.closest("[data-sensor]");
+  if (!prop && !sens) return;
+  if (!confirm(prop ? "Apagar esta propriedade?" : "Tirar este sensor do mapa?")) return;
+  try {
+    await EcoGuard.api(prop ? `/api/propriedades/${prop.dataset.prop}` : `/api/sensores/${sens.dataset.sensor}`, { method: "DELETE" });
+    mapa.closePopup(); ultimoJson = ""; await atualizar();
+  } catch (err) { EcoGuard.toast(err.message); }
+});
+
+atualizar();
+setInterval(atualizar, 5000);
+</script>
+{% endblock %}
