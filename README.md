@@ -34,7 +34,7 @@ powershell -ExecutionPolicy Bypass -File tools\gerar_exe.ps1
 
 Isso cria `dist\EcoGuard\EcoGuard.exe` (pasta, sem console) e `instalador\Instalar-EcoGuard.exe`. O instalador **não pede administrador** (instala para o usuário atual), cria o atalho na área de trabalho e fala português. O `EcoGuard.exe` escolhe sozinho uma porta livre, abre a janela própria (pywebview/WebView2) e encerra tudo quando a janela fecha. Se a janela não abrir, usa o navegador padrão.
 
-> Falta testar o instalador num Windows limpo, sem Python (CLAUDE.md, etapa 7). O guia de uma página para a professora é a etapa 8.
+> Falta testar o instalador num Windows limpo, sem Python (CLAUDE.md, etapa 7). O guia de uma página para a professora está em `docs/Guia-da-professora.docx`.
 
 ## Dados de demonstração
 
