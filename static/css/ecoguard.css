@@ -199,3 +199,10 @@ input[type="range"] { width: 100%; min-height: 44px; accent-color: var(--verde-e
 @media (prefers-reduced-motion: reduce) { .status.s-acordando .status-ic { animation: none; } }
 
 .sem-rotulos .rotulo-prop { display: none; }
+
+/* ---------------------------------------------------------------- aviso de versão nova */
+.aviso-versao {
+  display: flex; align-items: center; justify-content: center; gap: .8rem; flex-wrap: wrap; padding: .4rem 1rem;
+  background: #FFF4D6; border-bottom: 3px solid #F2C94C; font-weight: 800; font-size: .9rem;
+}
+.aviso-versao[hidden] { display: none; }

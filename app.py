@@ -10,12 +10,16 @@ Os sensores ESP32 enviam as leituras para a API do projeto (FastAPI + Supabase, 
 banco dela: busca GET /dados em segundo plano e guarda as leituras no banco local (%APPDATA%\\EcoGuard).
 Sem internet, o app abre do mesmo jeito e mostra os exemplos (modo demonstração).
 """
+import hashlib
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import requests
 from flask import Flask, jsonify, render_template, request
@@ -23,6 +27,7 @@ from sqlalchemy import func, select
 
 from banco import Leitura, Propriedade, Sensor, agora_utc, db, init_db, ultimas_leituras
 from exemplos import garantir_exemplos, renovar_leituras, restaurar_exemplos
+from versao import VERSAO
 
 NOME = "EcoGuard"
 # Dentro do executável (PyInstaller), templates e static ficam em sys._MEIPASS.
@@ -54,6 +59,11 @@ def _proteger():
     # então ninguém de fora mexe nos dados do programa pelo endereço local.
     if request.method in ("POST", "PATCH", "PUT", "DELETE") and request.headers.get("X-EcoGuard") != "1":
         return erro("Requisição inválida.", 403)
+
+
+@app.context_processor
+def _contexto():
+    return {"versao": VERSAO}
 
 
 @app.after_request
@@ -413,6 +423,88 @@ def api_sincronizar():
     return jsonify({"iniciada": iniciar_sincronizacao(forcar=True)})
 
 
+# ---------------------------------------------------------------- atualização do programa
+# Ao abrir (e a cada 6 h) o app olha, em segundo plano, a última release do repositório no GitHub. Se houver versão
+# maior que a instalada, a tela mostra um aviso. NADA é baixado nem instalado sem alguém clicar em "Atualizar".
+REPO = os.environ.get("ECOGUARD_REPO", "AykOwO/EcoGuard").strip()
+ARQUIVO_INSTALADOR = "Instalar-EcoGuard.exe"
+_versao = {"nova": None}
+EMPACOTADO = bool(getattr(sys, "frozen", False))   # só o programa instalado sabe se atualizar
+
+
+def _numeros(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3])
+
+
+def checar_versao():
+    """Retorna os dados da release mais nova que a instalada, ou None (sem internet, sem release, já está atualizado)."""
+    r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=8,
+                     headers={"User-Agent": f"EcoGuard/{VERSAO}", "Accept": "application/vnd.github+json"})
+    if r.status_code != 200:
+        return None
+    j = r.json()
+    tag = str(j.get("tag_name") or "")
+    if not _numeros(tag) or _numeros(tag) <= _numeros(VERSAO):
+        return None
+    for a in j.get("assets") or []:
+        if a.get("name") == ARQUIVO_INSTALADOR and a.get("browser_download_url"):
+            return {"versao": tag.lstrip("vV"), "url": a["browser_download_url"], "tamanho": a.get("size"),
+                    "sha256": str(a.get("digest") or "").removeprefix("sha256:") or None,
+                    "notas": str(j.get("body") or "")[:300]}
+    return None
+
+
+def _laco_versao():
+    time.sleep(5)
+    while True:
+        try:
+            _versao["nova"] = checar_versao()
+        except Exception as e:   # sem internet, GitHub fora do ar... a atualização nunca atrapalha o uso
+            app.logger.info("Não consegui checar a versão nova: %r", e)
+        time.sleep(6 * 3600)
+
+
+@app.get("/api/versao")
+def api_versao():
+    nova = _versao["nova"]
+    return jsonify({"atual": VERSAO, "pode_atualizar": EMPACOTADO,
+                    "nova": {"versao": nova["versao"], "notas": nova["notas"]} if nova else None})
+
+
+@app.post("/api/atualizar")
+def api_atualizar():
+    """Baixa o instalador da versão nova (o endereço vem da checagem acima, nunca da tela), confere e roda por cima."""
+    nova = _versao["nova"]
+    if not nova:
+        return erro("Não há versão nova para instalar.")
+    if not EMPACOTADO:
+        return erro("A atualização automática só funciona no programa instalado.")
+    host = urlparse(nova["url"])
+    if host.scheme != "https" or not (host.hostname or "").endswith(("github.com", "githubusercontent.com")):
+        return erro("Endereço de atualização não confiável.", 502)
+    caminho = os.path.join(tempfile.mkdtemp(prefix="ecoguard-"), ARQUIVO_INSTALADOR)
+    try:
+        h = hashlib.sha256()
+        with requests.get(nova["url"], stream=True, timeout=(8, 60), headers={"User-Agent": f"EcoGuard/{VERSAO}"}) as r:
+            r.raise_for_status()
+            with open(caminho, "wb") as f:
+                for pedaco in r.iter_content(1024 * 256):
+                    h.update(pedaco)
+                    f.write(pedaco)
+        tamanho = os.path.getsize(caminho)
+    except Exception as e:
+        app.logger.warning("Download da atualização falhou: %r", e)
+        return erro("Não consegui baixar a atualização. Confira a internet e tente de novo.", 502)
+    if tamanho < 1_000_000 or (nova["tamanho"] and tamanho != nova["tamanho"]) or (nova["sha256"] and h.hexdigest() != nova["sha256"]):
+        os.remove(caminho)
+        return erro("O arquivo baixado veio incompleto. Tente de novo.", 502)
+    # O instalador roda separado (sobrevive ao fechamento do app), troca os arquivos e abre o EcoGuard de novo.
+    subprocess.Popen([caminho, "/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/NORESTART"],
+                     creationflags=0x00000008 | 0x00000200, close_fds=True)   # DETACHED_PROCESS | NEW_PROCESS_GROUP
+    threading.Timer(1.5, lambda: os._exit(0)).start()
+    return jsonify({"ok": True})
+
+
 def _laco_sincronizacao():
     while True:
         try:
@@ -425,6 +517,7 @@ def _laco_sincronizacao():
 def iniciar_segundo_plano():
     """Liga a busca automática. Chamado pelo iniciar.py (e pelo modo de desenvolvimento abaixo)."""
     threading.Thread(target=_laco_sincronizacao, daemon=True, name="laco-sensores").start()
+    threading.Thread(target=_laco_versao, daemon=True, name="laco-versao").start()
 
 
 if __name__ == "__main__":

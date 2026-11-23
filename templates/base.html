@@ -7,7 +7,7 @@
   <title>{% block titulo %}{% endblock %} | EcoGuard</title>
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ecoguard.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ecoguard.css') }}?v=2">
 </head>
 <body class="{% block corpo_classe %}{% endblock %}">
   <header class="topo">
@@ -23,10 +23,16 @@
     </nav>
   </header>
 
+  <div class="aviso-versao" id="aviso-versao" role="status" hidden>
+    <span>🆕 Tem uma versão nova do EcoGuard (<b id="versao-nova"></b>).</span>
+    <button class="btn" type="button" id="btn-atualizar">Atualizar agora</button>
+    <button class="discreto" type="button" id="btn-depois">Depois</button>
+  </div>
+
   <main class="conteudo">{% block conteudo %}{% endblock %}</main>
 
   <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/ecoguard.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='js/ecoguard.js') }}?v=2"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

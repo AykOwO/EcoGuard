@@ -34,6 +34,14 @@ powershell -ExecutionPolicy Bypass -File tools\gerar_exe.ps1
 
 Isso cria `dist\EcoGuard\EcoGuard.exe` (pasta, sem console) e `instalador\Instalar-EcoGuard.exe`. O instalador **não pede administrador** (instala para o usuário atual), cria o atalho na área de trabalho e fala português. O `EcoGuard.exe` escolhe sozinho uma porta livre, abre a janela própria (pywebview/WebView2) e encerra tudo quando a janela fecha. Se a janela não abrir, usa o navegador padrão.
 
+### Atualização do programa
+
+- Rodar o `Instalar-EcoGuard.exe` novo **por cima** atualiza o programa, sem desinstalar. O atalho e os dados (`%APPDATA%\EcoGuard`) continuam.
+- Dentro do app: ao abrir (e a cada 6 horas) ele olha a última *release* do repositório no GitHub. Se a versão for maior que a instalada (`versao.py`), aparece o aviso **"Tem uma versão nova"** com o botão **Atualizar agora**. Nada é baixado nem instalado sem clique. O instalador baixado é conferido (tamanho e SHA-256) e roda em segundo plano; o app fecha e abre de novo sozinho.
+- Funciona só com o repositório **público** (o app não tem chave para ler releases de repositório privado) e só no programa instalado. Sem internet, o aviso simplesmente não aparece.
+- **Para lançar uma versão nova:** aumente `VERSAO` em `versao.py`, faça o commit e rode `powershell -ExecutionPolicy Bypass -File tools\gerar_exe.ps1 -Publicar`.
+- A primeira vez que o app com atualização chegar a um computador precisa ser instalada à mão (versões antes da 1.1.0 não sabem se atualizar).
+
 > Falta testar o instalador num Windows limpo, sem Python (CLAUDE.md, etapa 7). O guia de uma página para a professora está em `docs/Guia-da-professora.docx`.
 
 ## Dados de demonstração

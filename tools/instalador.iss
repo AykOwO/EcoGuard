@@ -1,7 +1,9 @@
 ; Instalador do EcoGuard (Inno Setup). Gere com tools\gerar_exe.ps1
 ; Instala só para o usuário atual: NÃO pede senha de administrador.
 #define Nome "EcoGuard"
-#define Versao "1.0"
+#ifndef Versao
+  #define Versao "0.0.0"
+#endif
 
 [Setup]
 AppId={{6F1B7C1E-3C55-4C0E-9B6E-EC0A6A9D0001}
@@ -34,4 +36,6 @@ Name: "{autodesktop}\{#Nome}"; Filename: "{app}\EcoGuard.exe"; Tasks: desktop
 Name: "{group}\{#Nome}"; Filename: "{app}\EcoGuard.exe"
 
 [Run]
+; A última linha reabre o app depois de uma atualização feita de dentro dele (modo silencioso).
 Filename: "{app}\EcoGuard.exe"; Description: "Abrir o EcoGuard agora"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\EcoGuard.exe"; Flags: nowait; Check: WizardSilent

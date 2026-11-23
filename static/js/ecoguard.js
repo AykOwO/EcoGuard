@@ -105,3 +105,36 @@ const EcoGuard = {
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); clearTimeout(t); buscar(); } });
   },
 };
+
+// Aviso de versão nova (só avisa; nada é instalado sem clique)
+(() => {
+  const aviso = document.getElementById("aviso-versao");
+  if (!aviso) return;
+  let escondido = false;
+  try { escondido = sessionStorage.getItem("eg.versao.depois") === "1"; } catch {}
+  const checar = async () => {
+    if (escondido) return;
+    try {
+      const v = await EcoGuard.api("/api/versao");
+      if (!v.nova) return;
+      document.getElementById("versao-nova").textContent = v.nova.versao;
+      document.getElementById("btn-atualizar").hidden = !v.pode_atualizar;
+      aviso.hidden = false;
+    } catch {}
+  };
+  document.getElementById("btn-depois").onclick = () => {
+    escondido = true; aviso.hidden = true;
+    try { sessionStorage.setItem("eg.versao.depois", "1"); } catch {}
+  };
+  document.getElementById("btn-atualizar").onclick = async e => {
+    if (!confirm("O EcoGuard vai fechar e abrir de novo sozinho, em alguns segundos. Seus dados continuam salvos. Atualizar agora?")) return;
+    e.target.disabled = true;
+    EcoGuard.toast("Baixando a versão nova... Não feche o programa.", 60000);
+    try {
+      await EcoGuard.api("/api/atualizar", { method: "POST" });
+      aviso.innerHTML = "<span>⏳ Atualizando... O EcoGuard vai fechar e abrir sozinho.</span>";
+    } catch (err) { e.target.disabled = false; EcoGuard.toast(err.message); }
+  };
+  setTimeout(checar, 8000);      // a checagem em segundo plano começa uns segundos depois de abrir
+  setInterval(checar, 5 * 60000);
+})();
