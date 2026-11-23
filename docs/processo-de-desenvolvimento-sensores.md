@@ -1,6 +1,6 @@
 # Processo de desenvolvimento da parte de sensores (do Chama ao EcoGuard)
 
-Este documento conta como a parte de sensores foi construída, com as tecnologias usadas, os problemas encontrados e o que foi decidido em cada etapa. Ele vai até o ponto em que o **EcoGuard** passa a ser empacotado como executável. A partir daí, o trabalho continua a partir do `CLAUDE.md` e deste texto.
+Este documento conta como a parte de sensores foi construída, com as tecnologias usadas, os problemas encontrados e o que foi decidido em cada etapa. Ele vai até a primeira versão instalável do **EcoGuard** (versão 1.1.0, de 23/11/2026), com o que foi feito, testado e o que ainda falta.
 
 Os trechos marcados com **[preencher]** são informações que não estão no código nem no histórico do Git e precisam ser completadas pela equipe.
 
@@ -24,6 +24,10 @@ A matéria de extensão **[preencher: nome da disciplina, professora e institui�
 | 06/11/2026 | Primeiro teste ponta a ponta. A API estava no ar, mas o banco dela no Supabase não respondia (veja a seção 5) |
 | 13/11/2026 | O banco volta a funcionar e a integração é confirmada de novo |
 | 19/11/2026 | A equipe decide separar a parte de sensores num app próprio, o **EcoGuard**, entregue como executável |
+| 19/11/2026 | O EcoGuard é construído: sem login, banco local, visual novo tirado do logo, fluxo em três passos, rede de sensores e dados de exemplo |
+| 19/11/2026 | Empacotamento: janela própria, executável (PyInstaller) e instalador (Inno Setup). O repositório do EcoGuard é criado no GitHub e a release 1.0 é publicada |
+| 19/11/2026 | Primeiro guia da professora, em Word |
+| 23/11/2026 | Correção: sensores apagados na API saem da lista "Sensores sem lugar". Entra a **atualização dentro do app** e sai a versão 1.1.0. O guia da professora é refeito, passo a passo, para quem não é da área |
 
 ## 3. Como a solução funciona
 
@@ -36,7 +40,7 @@ O caminho 2, em passos:
 
 1. O **ESP32** mede temperatura, umidade do ar e umidade do solo e envia um `POST /dados` à API, com `codigo_esp32`, `temperatura`, `umidade_ar` e `umidade_solo`.
 2. A **API** (FastAPI, hospedada no Render) grava a leitura num banco **PostgreSQL no Supabase** e devolve os dados em `GET /dados`.
-3. O app **nunca fala com o banco**, só com os endpoints da API. Em segundo plano, o servidor do app faz `GET /dados` a cada 5 minutos, ou quando a pessoa toca em "Buscar agora".
+3. O app **nunca fala com o banco**, só com os endpoints da API. Em segundo plano, o servidor do app faz `GET /dados` (a cada 5 minutos no Chama e a cada 30 segundos no EcoGuard), ou quando a pessoa clica em "Buscar agora".
 4. Cada leitura é **validada** (umidades de 0 a 100 %, temperatura de -20 a 70 °C, data não pode estar no futuro). Leituras quebradas ou impossíveis são descartadas.
 5. As leituras boas são guardadas na tabela `leituras`, **sem duplicar**, e passam a alimentar o mapa, o estado do sensor e os avisos.
 
@@ -71,7 +75,10 @@ A busca roda numa thread separada, para a tela não travar enquanto a API acorda
 | A API **não diz quem é dono** de cada código de ESP32 | No app, vale quem cadastrar o código primeiro. A pasta `docs/api-sensores` traz o desenho de um token por aparelho, ainda não implementado |
 | A API **não guarda localização** do sensor | A localização é informada no app, na hora de cadastrar. Na rede pública ela é arredondada a cerca de 1 km |
 | O horário da API vem em UTC com fuso | O app converte para UTC sem fuso ao guardar e mostra "há quanto tempo" na tela |
-| Dados de um usuário podiam aparecer para outro | Cada pessoa só enxerga e altera as próprias regiões e sensores. Na rede pública nunca saem token, código do aparelho, email ou nome do dono |
+| Dados de um usuário podiam aparecer para outro | Cada pessoa só enxerga e altera as próprias regiões e sensores. Na rede pública nunca saem token, código do aparelho, email ou nome do dono. No EcoGuard o problema deixa de existir: não há contas, só um perfil local |
+| **(EcoGuard)** A segunda busca na API falhava com erro de duplicidade, porque a API atual ignora o filtro `desde_id` e devolve tudo | O app passou a pular qualquer leitura cujo `id` já foi importado. Três buscas seguidas foram testadas sem erro |
+| **(EcoGuard)** Sensores apagados no banco da API continuavam na lista "Sensores sem lugar" | A cada 10 minutos (ou ao clicar em "Buscar agora") o app busca a lista inteira e tira da tela os sensores sem lugar que a API não devolve mais. Os já colocados no mapa ficam |
+| **(EcoGuard)** O ambiente virtual copiado do Chama apontava para a pasta do Chama e instalou pacotes no projeto antigo | O ambiente virtual foi apagado e recriado dentro do EcoGuard |
 
 ## 6. Decisões de projeto
 
@@ -88,29 +95,48 @@ A busca roda numa thread separada, para a tela não travar enquanto a API acorda
 - **Celular:** todas as telas testadas sem rolagem lateral e sem erros de JavaScript.
 - **Limitação:** a API em produção é a versão antiga e ignora os filtros (`limite`, `ordem`, `desde_id`). O app funciona assim, mas baixa todas as leituras a cada busca.
 
+### No EcoGuard (19 a 23/11)
+
+- **Busca real na API:** 94 leituras importadas e 6 códigos descobertos (`ESP32_001`, `ESP32_002`, `ESP32_003`, `ESP32_005`, `ESP32_TESTE_CHAMA` e `STRING`). Cadastro de sensor, "sem lugar", apagar propriedade e restaurar exemplos funcionaram.
+- **Sem vazamento:** o código do aparelho não aparece nos sensores do mapa, só na lista "sem lugar".
+- **Remoção de sensores sumidos da API:** testada com uma API simulada (de 4 códigos, sobraram só os 2 que a API ainda tinha).
+- **Executável e instalador:** o `.exe` abre a janela própria, escolhe porta livre e encerra ao fechar. O instalador foi instalado, executado e desinstalado numa pasta de teste, e a atualização silenciosa por cima, com o app aberto, fechou e reabriu o programa sozinha.
+- **Atualização no app:** testadas a comparação de versões, as travas de segurança (endereço fora do GitHub, pedido sem cabeçalho) e a parte do instalador.
+- **Visual:** conferido por capturas de tela do mapa e das telas de propriedade e sensor.
+
 ## 8. Da parte de sensores ao EcoGuard
 
-Para a entrega da extensão, a equipe precisava de algo menor que o Chama inteiro. A ideia do **EcoGuard** é ficar só com:
+Para a entrega da extensão, a equipe precisava de algo menor que o Chama inteiro. O **EcoGuard** ficou só com:
 
 - propriedades no mapa (ponto e raio, como no Chama);
 - cadastro de sensores;
-- visualização pública da rede de sensores.
+- visualização da rede de sensores.
 
-Ficam de fora relatos de incêndio, validação, cargos, time, alertas de fogo, previsão do tempo, área Aprenda e login. O EcoGuard será entregue como **executável para Windows**, usado pela professora e apresentado por crianças. Isso pede uma interface muito simples, dados de exemplo (cerca de 5 propriedades e 10 sensores) e um modo demonstração.
+Ficaram de fora relatos de incêndio, validação, cargos, time, alertas de fogo, previsão do tempo, área Aprenda e login. O EcoGuard é entregue como **executável para Windows**, usado pela professora e apresentado por crianças. Isso pediu uma interface muito simples, dados de exemplo e um modo demonstração.
 
 Em 19/11 foi criada a pasta do EcoGuard como cópia do Chama e escrito o `CLAUDE.md`, que reúne o escopo, as decisões, os riscos do dia da apresentação e a ordem de trabalho.
 
-## 9. Onde o documento termina
+## 9. O que foi feito no EcoGuard
 
-Este texto cobre o desenvolvimento até **a decisão e o planejamento do EcoGuard**. Ficam para a continuação:
+- **Recomeço limpo.** O histórico do Git, o banco e os segredos do Chama foram descartados, e o projeto ganhou um repositório novo. Saíram relatos, validação, cargos, time, alertas, clima, Aprenda, login, administração e os sensores `CHM-`.
+- **Sem conta.** Há um perfil local único. O banco (SQLite) fica em `%APPDATA%\EcoGuard`, nunca ao lado do programa.
+- **Identidade visual nova**, tirada do logo do projeto: azul-marinho, verde-limão e azul-céu, fonte Nunito, botões de no mínimo 44 px e texto grande para projetor. O Leaflet e a fonte vão embutidos, então a interface abre sem internet.
+- **Fluxo em três passos, sempre visível:** onde fica a propriedade, cadastro do sensor e mapa. Os estados dos sensores são **Funcionando**, **Sem sinal** e **Esperando**, e os erros dizem o que fazer.
+- **Rede de sensores.** Todo código que a API devolve vira um sensor; os que ainda não têm lugar aparecem em "Sensores sem lugar", com o botão "Colocar no mapa", porque a API não guarda localização.
+- **Dados de exemplo.** O app traz 5 propriedades e 10 sensores de mentira, marcados como "exemplo", com um botão discreto para restaurá-los. Eles ficam só no banco local e nunca são enviados à API.
+- **Modo demonstração.** Sem internet o app abre e mostra os exemplos, com aviso claro. O mapa de satélite cai num mapa simples quadriculado. Quando a API está acordando, a tela avisa "Acordando os sensores...".
+- **Executável e instalador.** O programa abre em janela própria (sem terminal), escolhe uma porta livre e encerra ao fechar a janela. O instalador é feito com Inno Setup, em português, **sem pedir administrador**.
+- **Atualização dentro do app.** O app confere a última *release* do repositório no GitHub; se houver versão maior, mostra um aviso com o botão "Atualizar agora". Nada é baixado nem instalado sem clique, e o arquivo baixado é conferido (tamanho e SHA-256).
+- **Guia da professora**, em Word, em duas páginas, com passo a passo para quem não é da área: teste na véspera, preparação do dia e tabela de problemas.
+- **Repositório no GitHub** para a revisão da parte dos sensores pelo colega que mantém a API.
 
-1. Remover o que não pertence ao EcoGuard, tirar o login e renomear o projeto.
-2. Criar a interface para crianças e os dados de exemplo.
-3. Empacotar o executável com PyInstaller, testar num Windows limpo e preparar o guia da professora.
-4. Atualizar este documento com o que foi feito nessas etapas.
+## 10. Limitações conhecidas e o que falta
 
-## 10. Limitações conhecidas
-
-- A API dos sensores **não tem autenticação por aparelho**, e o `POST /dados` é aberto a qualquer pessoa.
-- A API gratuita **dorme** e o banco do Supabase gratuito **pausa** por inatividade. Os dois precisam ser conferidos antes de uma apresentação.
-- Os textos educativos do Chama e as faixas da regra dos 30 são rascunho e não foram validados por bombeiros. No EcoGuard essa parte não entra.
+- A API dos sensores **não tem autenticação por aparelho**, e o `POST /dados` é aberto a qualquer pessoa. No EcoGuard vale quem cadastrar o código primeiro, o que é aceitável num app local.
+- A API gratuita **dorme** e o banco do Supabase gratuito **pausa** por inatividade. Os dois precisam ser conferidos antes de uma apresentação (o guia da professora explica como).
+- A API atual ignora os filtros e devolve todas as leituras a cada busca. A versão melhorada (`docs/api-sensores`) ainda não foi publicada e depende do aceite de quem mantém a API.
+- A API devolve códigos de teste (`ESP32_TESTE_CHAMA` e `STRING`) que aparecem na lista de sensores sem lugar até alguém apagá-los na própria API.
+- O instalador **ainda não foi testado num Windows sem Python**. Ele também não é assinado, então o Windows mostra o aviso "protegeu o computador" (o guia ensina a passar por ele).
+- A atualização dentro do app só funciona com o repositório **público**. Se ele ficar privado, a atualização é feita instalando o novo instalador por cima.
+- O intervalo de envio do ESP32 é definido no firmware. O recomendado é a cada 10 minutos, e isso precisa ser confirmado.
+- A posição do sensor mostrada no mapa é a que a criança clicou, sem arredondar a cerca de 1 km, porque o app é local e não há rede pública compartilhada.
