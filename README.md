@@ -53,6 +53,7 @@ A API (`https://projeto-sensores-esp32.onrender.com`, FastAPI + Supabase no Rend
 - **Todo código** que a API devolve vira um sensor. Os que ainda não têm lugar aparecem em **Sensores sem lugar**, com o botão *Colocar no mapa*, porque a API não guarda localização.
 - Leituras fora da faixa (temperatura de -20 a 70 °C, umidades de 0 a 100 %) são descartadas, como o teste de 100 °C do `ESP32_001`.
 - **Intervalo do ESP32:** é definido no firmware do aparelho. O recomendado é enviar **a cada 10 minutos**: assim "Funcionando" (30 minutos) tolera até duas leituras perdidas. Para a apresentação dá para reduzir (ex.: 1 minuto) e voltar depois.
+- Se alguém apagar um sensor no banco da API, ele sai da lista "Sensores sem lugar" na próxima conferência completa (no máximo 10 minutos; o botão **Buscar agora** confere na hora). Sensores já colocados no mapa ficam, e as leituras antigas deles também.
 - Estados: **Funcionando** (leitura de menos de 30 minutos), **Sem sinal** (mais antiga), **Esperando** (nunca enviou).
 - A API gratuita do Render **dorme** e leva cerca de 20 s para acordar. O app mostra "Acordando os sensores..." e tenta de novo sozinho.
 

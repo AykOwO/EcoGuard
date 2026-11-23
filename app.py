@@ -319,12 +319,19 @@ def _registro_api(reg):
     return id_, codigo, quando, valores
 
 
-def sincronizar_sensores():
+LIMITE_BUSCA = 5000
+CONFERE_A_CADA_S = 600   # de tempos em tempos, busca tudo para tirar da lista o que sumiu da API
+_ultima_completa = [0.0]
+
+
+def sincronizar_sensores(completa=False):
     """Busca na API as leituras novas e as guarda. Todo código que a API devolve vira um sensor (sem lugar, até alguém
-    colocá-lo no mapa). Pede só o que é novo (?desde_id=); se a API ainda ignora o filtro, devolve tudo e pulamos o que já temos."""
+    colocá-lo no mapa). Pede só o que é novo (?desde_id=); se a API ainda ignora o filtro, devolve tudo e pulamos o que já temos.
+    Numa busca `completa` (sem filtro) também apaga os sensores sem lugar que a API não conhece mais."""
     desde = db.session.scalar(select(func.max(Leitura.externo_id))) or 0
-    pedido = {"ordem": "asc", "limite": 5000}
-    if desde:
+    completa = completa or time.time() - _ultima_completa[0] > CONFERE_A_CADA_S
+    pedido = {"ordem": "asc", "limite": LIMITE_BUSCA}
+    if desde and not completa:
         pedido["desde_id"] = desde
     r = requests.get(f"{SENSORES_API}/dados", params=pedido, timeout=(6, 50),
                      headers={"X-API-Key": SENSORES_API_CHAVE} if SENSORES_API_CHAVE else None)
@@ -355,15 +362,26 @@ def sincronizar_sensores():
         novas += 1
         if novas >= 5000:   # trava de segurança numa primeira busca gigante; o resto entra na próxima
             break
+    if completa and len(dados) < LIMITE_BUSCA:   # lista inteira: dá para saber o que a API não tem mais
+        _tirar_sumidos({str(x.get("codigo_esp32", "")).strip().upper() for x in dados if isinstance(x, dict)})
+        _ultima_completa[0] = time.time()
     db.session.commit()
     return novas
 
 
-def _rodar_sincronizacao():
+def _tirar_sumidos(codigos_da_api):
+    """Sensor sem lugar que a API não devolve mais (alguém apagou no banco dela) sai da lista, com as leituras dele.
+    Sensor já colocado no mapa fica: a turma cadastrou, e pode estar só esperando a primeira leitura."""
+    for s in db.session.scalars(select(Sensor).where(Sensor.exemplo.is_(False), Sensor.propriedade_id.is_(None))):
+        if s.codigo not in codigos_da_api:
+            db.session.delete(s)
+
+
+def _rodar_sincronizacao(completa=False):
     with app.app_context():
         ok, tipo, novas = True, None, 0
         try:
-            novas = sincronizar_sensores()
+            novas = sincronizar_sensores(completa)
             renovar_leituras()   # mantém os exemplos "funcionando"
         except Exception as e:
             db.session.rollback()
@@ -383,7 +401,7 @@ def iniciar_sincronizacao(forcar=False):
         if _sync["executando"] or (not forcar and time.time() - _sync["inicio"] < SENSORES_SYNC_S):
             return False
         _sync.update(executando=True, inicio=time.time())
-    threading.Thread(target=_rodar_sincronizacao, daemon=True, name="sensores").start()
+    threading.Thread(target=_rodar_sincronizacao, args=(forcar,), daemon=True, name="sensores").start()
     return True
 
 
